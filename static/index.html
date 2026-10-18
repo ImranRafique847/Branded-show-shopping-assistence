@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>TRETTER — AI Shopping Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /*
+      Design language: tretter.com
+      ─ Pure white canvas
+      ─ Black (#111) text, all-caps spaced wordmark
+      ─ No color accent — black / white / mid-grey only
+      ─ Playfair Display for headings (luxury editorial serif)
+      ─ Inter for UI / body copy (clean, restrained)
+      ─ Hairline 1px borders
+      ─ Large white-background product images
+      ─ Generous whitespace, minimal chrome
+    */
+    :root {
+      --black:   #111111;
+      --dark:    #2a2a2a;
+      --mid:     #767676;
+      --light:   #e5e5e5;
+      --pale:    #f7f7f7;
+      --white:   #ffffff;
+      --red:     #c0392b;   /* error only */
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--pale);
+      height: 100vh; height: 100dvh;
+      display: flex; flex-direction: column; align-items: center;
+      color: var(--dark);
+    }
+
+    .app {
+      width: 100%; max-width: 960px;
+      height: 100vh; height: 100dvh;
+      display: flex; flex-direction: column;
+      background: var(--white);
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+      height: 64px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 28px;
+      background: var(--white);
+      border-bottom: 1px solid var(--light);
+      flex-shrink: 0; z-index: 100;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .topbar-logo {
+      /* Replicate the TRETTER wordmark using CSS — black, spaced, all-caps */
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: var(--black);
+    }
+    .topbar-sub { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--mid); font-weight: 400; padding-left: 2px; }
+    .topbar-center {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--mid); font-weight: 500;
+    }
+    .live-dot { width: 6px; height: 6px; background: var(--black); border-radius: 50%; animation: pulse 3s infinite; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+
+    /* Language toggle */
+    .lang-toggle { display: flex; border: 1px solid var(--light); }
+    .lang-opt {
+      padding: 6px 12px; font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+      text-transform: uppercase; cursor: pointer; transition: background .2s, color .2s;
+      color: var(--mid); background: var(--white); user-select: none;
+    }
+    .lang-opt.active { background: var(--black); color: var(--white); }
+    .lang-opt:hover:not(.active) { background: var(--pale); color: var(--black); }
+
+    .topbar-icon {
+      width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; border: 1px solid var(--light); background: var(--white);
+      font-size: 15px; transition: background .2s, border-color .2s;
+    }
+    .topbar-icon:hover { background: var(--pale); border-color: var(--dark); }
+
+    /* ── Announcement bar ── */
+    .announce {
+      padding: 10px 28px; background: var(--black); color: var(--white);
+      font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+      text-align: center; flex-shrink: 0;
+    }
+
+    /* ── Chat ── */
+    .chat-area { flex: 1; overflow-y: auto; padding: 28px 28px 24px; display: flex; flex-direction: column; }
+    .chat-area::-webkit-scrollbar { width: 4px; }
+    .chat-area::-webkit-scrollbar-thumb { background: var(--light); }
+
+    .turn { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
+
+    .message { display: flex; gap: 10px; max-width: 75%; animation: fadeUp .25s ease both; }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.assistant { align-self: flex-start; }
+    .avatar {
+      width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; letter-spacing: 1px; flex-shrink: 0;
+      text-transform: uppercase;
+    }
+    .message.assistant .avatar { background: var(--black); color: var(--white); }
+    .message.user .avatar { background: var(--white); border: 1px solid var(--light); color: var(--dark); }
+    .bubble { padding: 14px 18px; line-height: 1.6; font-size: 14px; font-weight: 300; }
+    .message.assistant .bubble {
+      background: var(--pale); border: 1px solid var(--light);
+      border-radius: 0 12px 12px 12px; color: var(--dark);
+    }
+    .message.user .bubble {
+      background: var(--black); color: var(--white);
+      border-radius: 12px 0 12px 12px;
+    }
+
+    /* ── Products ── */
+    .products-section { width: 100%; padding: 0 0 0 42px; animation: fadeUp .3s ease .1s both; }
+    .products-label {
+      font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--mid); margin-bottom: 10px; padding-left: 2px;
+    }
+    .products-scroll { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 1px; background: var(--light); padding: 1px; }
+
+    /* Product cards — TRETTER style: white image area, clean text below */
+    .product-card-container { min-width: 0; perspective: 1200px; animation: popIn .35s ease both; background: var(--white); }
+    .product-card {
+      position: relative; width: 100%; height: 290px; transform-style: preserve-3d;
+      transition: transform .65s cubic-bezier(.4,.2,.2,1); cursor: pointer;
+    }
+    .product-card-container:hover .product-card { transform: rotateY(180deg); }
+    .card-face {
+      position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+      overflow: hidden; transition: box-shadow .3s;
+    }
+    .card-front { background: var(--white); display: flex; flex-direction: column; }
+    .product-card-container:hover .card-front { box-shadow: 0 4px 20px rgba(0,0,0,.1); }
+    .card-back {
+      background: var(--black);
+      transform: rotateY(180deg); display: flex; flex-direction: column;
+      justify-content: center; align-items: center; padding: 24px 18px; text-align: center;
+    }
+    .card-back .back-brand {
+      font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: rgba(255,255,255,.5); margin-bottom: 6px;
+    }
+    .card-back .back-name {
+      font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 400;
+      color: var(--white); margin-bottom: 14px; line-height: 1.4;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .card-back .back-price { font-size: 22px; font-weight: 300; color: var(--white); margin-bottom: 6px; letter-spacing: 1px; }
+    .card-back .back-old { font-size: 12px; color: rgba(255,255,255,.4); text-decoration: line-through; margin-bottom: 8px; }
+    .card-back .back-stock {
+      font-size: 9px; padding: 3px 10px; letter-spacing: 1.5px; text-transform: uppercase;
+      border: 1px solid rgba(255,255,255,.2); color: rgba(255,255,255,.6); margin-bottom: 18px;
+    }
+    .card-back .back-buy-btn {
+      display: inline-block; padding: 12px 28px; background: var(--white); color: var(--black);
+      font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+      text-decoration: none; transition: all .2s;
+    }
+    .card-back .back-buy-btn:hover { background: var(--pale); }
+
+    .product-wishlist {
+      position: absolute; top: 8px; right: 8px; width: 28px; height: 28px;
+      background: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center;
+      font-size: 13px; cursor: pointer; border: 1px solid var(--light); z-index: 2;
+      transition: background .2s;
+    }
+    .product-wishlist:hover, .product-wishlist.liked { background: var(--black); color: var(--white); border-color: var(--black); }
+
+    .product-img-wrap {
+      width: 100%; height: 175px; background: var(--white);
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .product-img-wrap img {
+      width: 100%; height: 100%; object-fit: contain;
+      transition: transform .5s cubic-bezier(.25,.46,.45,.94);
+    }
+    .product-card-container:hover .product-img-wrap img { transform: scale(1.05); }
+    .product-img-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2rem; background: var(--pale); }
+
+    .product-body { padding: 12px 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--light); }
+    .product-brand { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--mid); font-weight: 500; }
+    .product-name { font-size: 12px; color: var(--dark); font-weight: 400; line-height: 1.3;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .product-price { font-size: 14px; font-weight: 500; color: var(--black); margin-top: 2px; }
+    .product-old { font-size: 11px; color: var(--mid); text-decoration: line-through; margin-left: 5px; font-weight: 300; }
+    .flip-hint { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--mid); margin-top: auto; padding-top: 4px; transition: opacity .2s; }
+    .product-card-container:hover .flip-hint { opacity: 0; }
+
+    /* ── Chips ── */
+    .chips-section { padding-left: 42px; display: flex; flex-wrap: wrap; gap: 6px; animation: slideIn .25s ease .3s both; margin-top: 2px; }
+    .chip {
+      padding: 7px 14px; background: var(--white); border: 1px solid var(--light);
+      font-size: 11px; letter-spacing: .5px; color: var(--dark); cursor: pointer; transition: all .15s;
+    }
+    .chip:hover { background: var(--black); color: var(--white); border-color: var(--black); }
+
+    /* ── Typing ── */
+    .typing-indicator { display: flex; gap: 10px; align-items: center; animation: fadeUp .25s ease both; }
+    .typing-bubble {
+      background: var(--pale); border: 1px solid var(--light);
+      border-radius: 0 12px 12px 12px; padding: 12px 16px; display: flex; gap: 5px; align-items: center;
+    }
+    .typing-bubble span { width: 5px; height: 5px; background: var(--mid); border-radius: 50%; animation: dotPulse 1.2s infinite; }
+    .typing-bubble span:nth-child(2) { animation-delay: .2s; }
+    .typing-bubble span:nth-child(3) { animation-delay: .4s; }
+
+    /* ── Input bar ── */
+    .input-bar {
+      flex-shrink: 0; padding: 16px 28px;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      background: var(--white); border-top: 1px solid var(--light);
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .input-container {
+      width: 100%; display: flex; align-items: center; gap: 8px;
+      border: 1px solid var(--light); background: var(--white);
+      padding: 8px 8px 8px 16px; transition: border-color .2s;
+    }
+    .input-container:focus-within { border-color: var(--black); }
+    .input-container input {
+      flex: 1; border: none; outline: none; font-size: 14px; font-weight: 300;
+      background: transparent; color: var(--black); font-family: 'Inter', sans-serif;
+    }
+    .input-container input::placeholder { color: var(--mid); }
+    .cam-btn, .mic-btn {
+      width: 40px; height: 40px; border: 1px solid var(--light); background: var(--white);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 15px; flex-shrink: 0; transition: background .2s, border-color .2s;
+    }
+    .cam-btn:hover, .mic-btn:hover { background: var(--black); color: var(--white); border-color: var(--black); }
+    .mic-btn.listening { background: var(--black); color: var(--white); animation: micRing 1.2s infinite; }
+    .input-hint { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--mid); }
+
+    /* ── Image modal ── */
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      display: none; align-items: center; justify-content: center; z-index: 200;
+    }
+    .modal {
+      background: var(--white); padding: 32px; width: 400px; max-width: 92vw;
+      display: flex; flex-direction: column; gap: 14px;
+      border-top: 3px solid var(--black);
+    }
+    .modal h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px; font-weight: 400; color: var(--black);
+    }
+    .modal p { color: var(--mid); font-size: 12px; line-height: 1.6; font-weight: 300; }
+    .modal input[type=text], .modal input[type=email] {
+      padding: 12px 14px; border: 1px solid var(--light); font-size: 14px;
+      font-weight: 300; outline: none; color: var(--black); font-family: 'Inter', sans-serif; width: 100%;
+    }
+    .modal input:focus { border-color: var(--black); }
+    .modal .filepick {
+      border: 1px dashed var(--light); padding: 16px; text-align: center;
+      color: var(--mid); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; cursor: pointer;
+    }
+    .modal .filepick:hover { border-color: var(--dark); color: var(--dark); }
+    .modal .preview { max-height: 130px; object-fit: contain; display: none; width: 100%; }
+    .modal .row { display: flex; gap: 10px; }
+    .modal button {
+      cursor: pointer; padding: 14px; font-weight: 500; font-size: 11px; letter-spacing: 2px;
+      text-transform: uppercase; border: 1px solid var(--light); font-family: 'Inter', sans-serif;
+    }
+    .modal button.primary { background: var(--black); color: var(--white); border-color: var(--black); flex: 1; }
+    .modal button.primary:hover { background: var(--dark); }
+    .modal button.ghost { background: var(--white); color: var(--mid); flex: 1; }
+    .modal button.ghost:hover { border-color: var(--dark); color: var(--dark); }
+    .modal .err { color: var(--red); font-size: 11px; min-height: 14px; letter-spacing: .5px; text-transform: none; font-weight: 400; }
+
+    /* ── Animations ── */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes popIn { from { opacity: 0; transform: scale(.97) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+    @keyframes dotPulse { 0%,60%,100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-4px); opacity: 1; } }
+    @keyframes micRing { 0% { box-shadow: 0 0 0 0 rgba(0,0,0,.3); } 100% { box-shadow: 0 0 0 8px rgba(0,0,0,0); } }
+
+    /* ── Responsive ── */
+    @media (max-width: 480px) {
+      .topbar { padding: 0 16px; }
+      .announce { padding: 8px 16px; font-size: 10px; }
+      .chat-area { padding: 20px 14px; }
+      .message { max-width: 88%; }
+      .products-section { padding-left: 10px; }
+      .chips-section { padding-left: 10px; }
+      .input-bar { padding: 12px 16px; }
+      .products-scroll { grid-template-columns: repeat(2, 1fr); }
+      .product-card { height: 260px; }
+      .product-img-wrap { height: 150px; }
+    }
+    @media (min-width: 769px) {
+      body { justify-content: center; }
+      .app { border-left: 1px solid var(--light); border-right: 1px solid var(--light); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-logo">Tretter</span>
+      <span class="topbar-sub">München · seit 1947</span>
+    </div>
+    <div class="topbar-center">
+      <span class="live-dot"></span>
+      <span id="liveLabel">KI-Suche</span>
+    </div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <span id="langDE" class="lang-opt active" onclick="setLang('de')">DE</span>
+        <span id="langEN" class="lang-opt" onclick="setLang('en')">EN</span>
+      </div>
+      <button class="topbar-icon" onclick="openImageModal()" title="Per Foto suchen">📷</button>
+      <button class="topbar-icon" onclick="newChat()" title="Neues Gespräch">⟳</button>
+    </div>
+  </div>
+
+  <!-- Announcement bar -->
+  <div class="announce" id="announceBar">Schuhe &amp; Accessoires · 7.476 Produkte · Textsuche oder Bildsuche</div>
+
+  <!-- Chat area -->
+  <div class="chat-area" id="chatArea">
+    <div class="turn">
+      <div class="message assistant">
+        <div class="avatar">T</div>
+        <div class="bubble" id="welcomeMsg"></div>
+      </div>
+      <div class="chips-section" id="welcomeChips"></div>
+    </div>
+  </div>
+
+  <!-- Input bar -->
+  <div class="input-bar">
+    <div class="input-container">
+      <button class="cam-btn" onclick="openImageModal()" title="Per Foto suchen">📷</button>
+      <input type="text" id="userInput" placeholder=""
+             onkeydown="if(event.key==='Enter') sendMessage()" autocomplete="off" />
+      <button class="mic-btn" id="micBtn" onclick="toggleVoice()">🎤</button>
+    </div>
+    <div class="input-hint" id="inputHint"></div>
+  </div>
+
+</div>
+
+<!-- Image search modal -->
+<div class="modal-bg" id="imgModal">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <p id="modalDesc"></p>
+    <input type="text" id="mName" />
+    <input type="email" id="mEmail" />
+    <input type="text" id="mPhone" />
+    <div class="filepick" id="filePick">
+      <span id="filePickLabel"></span>
+      <input type="file" id="mFile" accept="image/*" style="display:none" />
+    </div>
+    <img id="mPreview" class="preview" alt="preview" />
+    <div class="err" id="mErr"></div>
+    <div class="row">
+      <button class="ghost" id="mCancel" onclick="closeImageModal()"></button>
+      <button class="primary" id="mGo" onclick="submitImage()"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Language strings ──────────────────────────────────────────
+  const UI = {
+    de: {
+      welcome: 'Willkommen bei TRETTER. Beschreiben Sie, was Sie suchen — Typ, Marke, Farbe, Budget (z. B. „schwarze Herren-Sneaker unter 120 €"). Oder tippen Sie 📷, um ähnliche Modelle per Foto zu finden.',
+      placeholder: 'Schuhe suchen — Typ, Farbe, Marke, Budget ...',
+      hint: 'Text · 📷 Bildsuche · 🎤 Sprache',
+      announce: 'Schuhe & Accessoires · 7.476 Produkte · Textsuche oder Bildsuche',
+      liveLabel: 'KI-Suche',
+      chips: ['Herren-Sneaker unter 120 €', 'Damen Lederstiefel', 'Kinder Sandalen', 'Birkenstock'],
+      foundChips: ['Mehr davon', 'Günstigere Optionen', 'Nur auf Lager'],
+      foundLabel: 'Produkte gefunden',
+      modalTitle: 'Schuhe per Foto suchen',
+      modalDesc: 'Haben Sie ein Paar entdeckt, das ausverkauft ist? Laden Sie ein Foto hoch und wir finden ähnliche Modelle auf Lager. Bitte geben Sie Ihre Kontaktdaten an.',
+      namePH: 'Vollständiger Name *', emailPH: 'E-Mail *', phonePH: 'Telefon *',
+      filePickLabel: '📷 Foto auswählen',
+      cancel: 'Abbrechen', search: 'Ähnliche finden',
+      searching: 'Suche läuft …',
+      viewProduct: 'Zum Produkt',
+      errRequired: 'Name, E-Mail und Telefon sind erforderlich.',
+      errEmail: 'Bitte gültige E-Mail-Adresse eingeben.',
+      errFile: 'Bitte ein Foto auswählen.',
+      camTitle: 'Per Foto suchen',
+      newChat: 'Neues Gespräch',
+    },
+    en: {
+      welcome: 'Welcome to TRETTER. Tell me what you\'re looking for — type, brand, color, budget (e.g. "men\'s black sneakers under €120"). Or tap 📷 to find shoes using a photo.',
+      placeholder: 'Search for shoes — type, color, brand, budget ...',
+      hint: 'Text · 📷 image search · 🎤 voice',
+      announce: 'Shoes & Accessories · 7,476 products · text search or image search',
+      liveLabel: 'AI Search',
+      chips: ['Men\'s sneakers under €120', 'Women\'s leather boots', 'Kids\' sandals', 'Birkenstock'],
+      foundChips: ['Show more like this', 'Cheaper options', 'In stock only'],
+      foundLabel: 'products found',
+      modalTitle: 'Find shoes by photo',
+      modalDesc: 'Seen a pair you love but it\'s out of stock? Upload a photo and we\'ll find similar in-stock styles. Please share your contact details.',
+      namePH: 'Full name *', emailPH: 'Email *', phonePH: 'Phone *',
+      filePickLabel: '📷 Choose a photo',
+      cancel: 'Cancel', search: 'Find similar',
+      searching: 'Searching …',
+      viewProduct: 'View product',
+      errRequired: 'Name, email and phone are required.',
+      errEmail: 'Please enter a valid email address.',
+      errFile: 'Please choose a photo.',
+      camTitle: 'Find by photo',
+      newChat: 'New conversation',
+    }
+  };
+
+  let lang = localStorage.getItem('tretter_lang') || 'de';
+  let sessionId = null;
+
+  // ── setLang ───────────────────────────────────────────────────
+  function setLang(l) {
+    lang = l; localStorage.setItem('tretter_lang', l);
+    document.getElementById('langDE').classList.toggle('active', l === 'de');
+    document.getElementById('langEN').classList.toggle('active', l === 'en');
+    document.getElementById('userInput').placeholder = UI[l].placeholder;
+    document.getElementById('inputHint').textContent = UI[l].hint;
+    document.getElementById('announceBar').textContent = UI[l].announce;
+    document.getElementById('liveLabel').textContent = UI[l].liveLabel;
+    document.getElementById('modalTitle').textContent = UI[l].modalTitle;
+    document.getElementById('modalDesc').textContent = UI[l].modalDesc;
+    document.getElementById('mName').placeholder = UI[l].namePH;
+    document.getElementById('mEmail').placeholder = UI[l].emailPH;
+    document.getElementById('mPhone').placeholder = UI[l].phonePH;
+    document.getElementById('filePickLabel').textContent = UI[l].filePickLabel;
+    document.getElementById('mCancel').textContent = UI[l].cancel;
+    document.getElementById('mGo').textContent = UI[l].search;
+    const wm = document.getElementById('welcomeMsg');
+    const wc = document.getElementById('welcomeChips');
+    if (wm) wm.textContent = UI[l].welcome;
+    if (wc) wc.innerHTML = UI[l].chips.map(t =>
+      '<button class="chip" onclick="sendChip(this)">' + t + '</button>').join('');
+  }
+
+  // ── Session ───────────────────────────────────────────────────
+  async function initSession() {
+    sessionId = localStorage.getItem('tretter_sid');
+    if (!sessionId) {
+      try { const r = await fetch('/session'); sessionId = (await r.json()).session_id; }
+      catch { sessionId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()); }
+      localStorage.setItem('tretter_sid', sessionId);
+    }
+    setLang(lang);
+  }
+  initSession();
+
+  // ── Chat ──────────────────────────────────────────────────────
+  async function sendMessage() {
+    const input = document.getElementById('userInput');
+    const msg = input.value.trim(); if (!msg) return;
+    input.value = ''; setLoading(true);
+
+    const turn = document.createElement('div'); turn.className = 'turn';
+    turn.appendChild(createMsg('user', msg));
+    const typing = createTyping(); turn.appendChild(typing);
+    document.getElementById('chatArea').appendChild(turn); scrollBottom();
+
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, session_id: sessionId, lang })
+      });
+      const data = await res.json();
+      if (data.session_id) { sessionId = data.session_id; localStorage.setItem('tretter_sid', sessionId); }
+      typing.remove();
+      turn.appendChild(createMsg('assistant', data.reply));
+      if (data.rewritten_query) {
+        const q = document.createElement('div');
+        q.style.cssText = 'padding-left:42px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#767676;margin-top:4px;';
+        q.textContent = '🔍 ' + data.rewritten_query;
+        turn.appendChild(q);
+      }
+      if (data.products && data.products.length) {
+        turn.appendChild(buildCards(data.products));
+        turn.appendChild(buildChips());
+      }
+    } catch (e) {
+      typing.remove(); turn.appendChild(createMsg('assistant', 'Fehler. Bitte erneut versuchen.'));
+    }
+    setLoading(false); scrollBottom();
+  }
+
+  function sendChip(btn) { document.getElementById('userInput').value = btn.textContent.trim(); sendMessage(); }
+
+  function newChat() {
+    sessionId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    localStorage.setItem('tretter_sid', sessionId);
+    document.getElementById('chatArea').innerHTML =
+      '<div class="turn"><div class="message assistant"><div class="avatar">T</div>' +
+      '<div class="bubble" id="welcomeMsg">' + esc(UI[lang].welcome) + '</div></div>' +
+      '<div class="chips-section" id="welcomeChips">' +
+      UI[lang].chips.map(t => '<button class="chip" onclick="sendChip(this)">' + t + '</button>').join('') +
+      '</div></div>';
+    document.getElementById('userInput').focus();
+  }
+
+  // ── DOM helpers ───────────────────────────────────────────────
+  function createMsg(role, text) {
+    const div = document.createElement('div'); div.className = 'message ' + role;
+    div.innerHTML = '<div class="avatar">' + (role === 'user' ? 'U' : 'T') + '</div>' +
+      '<div class="bubble">' + esc(text).replace(/\n/g,'<br>').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') + '</div>';
+    return div;
+  }
+
+  function createTyping() {
+    const div = document.createElement('div'); div.className = 'typing-indicator';
+    div.innerHTML = '<div class="avatar" style="background:#111;color:#fff;">T</div>' +
+      '<div class="typing-bubble"><span></span><span></span><span></span></div>';
+    return div;
+  }
+
+  function buildCards(products) {
+    const display = products.slice(0, 15);
+    const sec = document.createElement('div'); sec.className = 'products-section';
+    sec.innerHTML =
+      '<div class="products-label">' + display.length + ' ' + UI[lang].foundLabel + '</div>' +
+      '<div class="products-scroll">' +
+      display.map(p => {
+        const price = typeof p.price === 'number' ? '€' + p.price.toFixed(2) : (p.price || '');
+        const old = p.old_price ? '<span class="product-old">€' + esc(String(p.old_price)) + '</span>' : '';
+        const imgH = p.image
+          ? '<img src="' + esc(p.image) + '" alt="' + esc(p.name) + '" onerror="this.parentElement.innerHTML=\'<div class=&quot;product-img-placeholder&quot;>👟</div>\'">'
+          : '<div class="product-img-placeholder">👟</div>';
+        return '<div class="product-card-container"><div class="product-card">' +
+          // FRONT
+          '<div class="card-face card-front">' +
+            '<button class="product-wishlist" onclick="event.preventDefault();event.stopPropagation();this.classList.toggle(\'liked\')">♡</button>' +
+            '<div class="product-img-wrap">' + imgH + '</div>' +
+            '<div class="product-body">' +
+              '<div class="product-brand">' + esc(p.brand||'') + '</div>' +
+              '<div class="product-name">' + esc(p.name||'') + '</div>' +
+              '<div class="product-price">' + price + old + '</div>' +
+              '<div class="flip-hint">↻</div>' +
+            '</div></div>' +
+          // BACK
+          '<div class="card-face card-back">' +
+            '<div class="back-brand">' + esc(p.brand||'') + '</div>' +
+            '<div class="back-name">' + esc(p.name||'') + '</div>' +
+            '<div class="back-price">' + price + '</div>' +
+            (p.old_price ? '<div class="back-old">€' + esc(String(p.old_price)) + '</div>' : '') +
+            (p.availability ? '<div class="back-stock">' + esc(p.availability) + '</div>' : '') +
+            '<a class="back-buy-btn" href="' + esc(p.url||'#') + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + UI[lang].viewProduct + '</a>' +
+          '</div></div></div>';
+      }).join('') + '</div>';
+    return sec;
+  }
+
+  function buildChips() {
+    const sec = document.createElement('div'); sec.className = 'chips-section';
+    sec.innerHTML = UI[lang].foundChips.map(t =>
+      '<button class="chip" onclick="sendChip(this)">' + t + '</button>').join('');
+    return sec;
+  }
+
+  function setLoading(l) { document.getElementById('userInput').disabled = l; document.getElementById('micBtn').disabled = l; }
+  function scrollBottom() {
+    // Scroll the new turn into view from the TOP (shows the reply, not the end of product grid).
+    const chatArea = document.getElementById('chatArea');
+    const turns = chatArea.querySelectorAll('.turn');
+    const lastTurn = turns[turns.length - 1];
+    if (lastTurn) {
+      lastTurn.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+  }
+  function esc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // ── Image modal ───────────────────────────────────────────────
+  function openImageModal() { document.getElementById('mErr').textContent = ''; document.getElementById('imgModal').style.display = 'flex'; }
+  function closeImageModal() { document.getElementById('imgModal').style.display = 'none'; }
+
+  document.getElementById('filePick').addEventListener('click', () => document.getElementById('mFile').click());
+  document.getElementById('mFile').addEventListener('change', e => {
+    const f = e.target.files[0]; const prev = document.getElementById('mPreview');
+    if (f) { prev.src = URL.createObjectURL(f); prev.style.display = 'block'; document.getElementById('filePickLabel').textContent = '📷 ' + f.name; }
+  });
+
+  async function submitImage() {
+    const name = document.getElementById('mName').value.trim();
+    const email = document.getElementById('mEmail').value.trim();
+    const phone = document.getElementById('mPhone').value.trim();
+    const file = document.getElementById('mFile').files[0];
+    const err = document.getElementById('mErr'); err.textContent = '';
+    const go = document.getElementById('mGo');
+    if (!name || !email || !phone) { err.textContent = UI[lang].errRequired; return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { err.textContent = UI[lang].errEmail; return; }
+    if (!file) { err.textContent = UI[lang].errFile; return; }
+
+    const fd = new FormData();
+    fd.append('image', file); fd.append('name', name); fd.append('email', email);
+    fd.append('phone', phone); fd.append('session_id', sessionId);
+    err.textContent = UI[lang].searching; go.disabled = true;
+    try {
+      const res = await fetch('/search-by-image', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) { err.textContent = data.detail || 'Error.'; go.disabled = false; return; }
+      closeImageModal(); go.disabled = false;
+      const turn = document.createElement('div'); turn.className = 'turn';
+      turn.appendChild(createMsg('user', '📷 ' + (lang === 'de' ? 'Foto hochgeladen' : 'Photo uploaded')));
+      turn.appendChild(createMsg('assistant', data.reply));
+      if (data.products && data.products.length) turn.appendChild(buildCards(data.products));
+      document.getElementById('chatArea').appendChild(turn); scrollBottom();
+    } catch(e) { err.textContent = 'Error. ' + (lang === 'de' ? 'Bitte erneut versuchen.' : 'Please try again.'); go.disabled = false; }
+  }
+
+  // ── Voice input ───────────────────────────────────────────────
+  let recognition = null, isListening = false;
+  function toggleVoice() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { return; }
+    isListening ? stopVoice() : startVoice();
+  }
+  function startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR(); recognition.lang = lang === 'de' ? 'de-DE' : 'en-US'; recognition.interimResults = true;
+    const mic = document.getElementById('micBtn'), inp = document.getElementById('userInput');
+    recognition.onstart = () => { isListening = true; mic.classList.add('listening'); mic.textContent = '⏺'; };
+    recognition.onresult = e => { inp.value = Array.from(e.results).map(r => r[0].transcript).join(''); };
+    recognition.onerror = () => stopVoice();
+    recognition.onend = () => { stopVoice(); if (inp.value.trim()) sendMessage(); };
+    recognition.start();
+  }
+  function stopVoice() {
+    isListening = false; const mic = document.getElementById('micBtn');
+    mic.classList.remove('listening'); mic.textContent = '🎤';
+    if (recognition) { try { recognition.stop(); } catch {} }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+
+# Generated indexes and embeddings — rebuild with build_*.py scripts
+text_index.faiss
+image_index.faiss
+text_metadata.json
+image_metadata.json
+text_embeddings_cache.jsonl
+image_embeddings_cache.jsonl
+product_chunks.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Large data files (kept in the parent folder, not in this project)
+*.csv
+*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db
