@@ -83,16 +83,28 @@ except Exception as e:  # noqa: BLE001
 def _load_index(path):
     return faiss.read_index(path)
 
-print("Loading indexes...")
-text_index = _load_index(TEXT_INDEX)
-with open(TEXT_META, "r", encoding="utf-8") as f:
-    text_metadata = json.load(f)
-print(f"[ok] text index: {text_index.ntotal} vectors")
+# Lazy-loaded indexes — loaded on first request, not at module init.
+# Keeps Lambda cold-start init under 10s (avoids init phase timeout).
+text_index     = None
+text_metadata  = None
+image_index    = None
+image_metadata = None
 
-image_index = _load_index(IMAGE_INDEX)
-with open(IMAGE_META, "r", encoding="utf-8") as f:
-    image_metadata = json.load(f)
-print(f"[ok] image index: {image_index.ntotal} vectors")
+
+def _ensure_indexes():
+    """Load FAISS indexes on first use."""
+    global text_index, text_metadata, image_index, image_metadata
+    if text_index is not None:
+        return
+    print("Loading indexes (lazy)...")
+    text_index = _load_index(TEXT_INDEX)
+    with open(TEXT_META, "r", encoding="utf-8") as f:
+        text_metadata = json.load(f)
+    print(f"[ok] text index: {text_index.ntotal} vectors")
+    image_index = _load_index(IMAGE_INDEX)
+    with open(IMAGE_META, "r", encoding="utf-8") as f:
+        image_metadata = json.load(f)
+    print(f"[ok] image index: {image_index.ntotal} vectors")
 
 
 # ── Embeddings ─────────────────────────────────────────────────
@@ -259,6 +271,7 @@ def passes_filters(item, f, force_in_stock=False):
 # ── Retrieval ──────────────────────────────────────────────────
 
 def search_text(query, original="", k=TOP_K):
+    _ensure_indexes()
     f = parse_filters(query + " " + original)
     emb = embed_text(query).reshape(1, -1)
     scores, idxs = text_index.search(emb, k * 8)
@@ -281,6 +294,7 @@ def search_text(query, original="", k=TOP_K):
 
 
 def search_image(img_b64, k=TOP_K):
+    _ensure_indexes()
     emb = embed_image_b64(img_b64)
     scores, idxs = image_index.search(emb, k * 8)
     out, seen = [], set()
@@ -496,8 +510,9 @@ async def search_by_image(
 
 @app.get("/health")
 async def health():
+    _ensure_indexes()
     return {"status": "ok",
-            "text_vectors": text_index.ntotal,
-            "image_vectors": image_index.ntotal,
+            "text_vectors": text_index.ntotal if text_index else 0,
+            "image_vectors": image_index.ntotal if image_index else 0,
             "chat_table": bool(chat_table),
             "leads_table": bool(leads_table)}

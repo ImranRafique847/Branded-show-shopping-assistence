@@ -10,6 +10,20 @@ text_embeddings_cache.jsonl
 image_embeddings_cache.jsonl
 product_chunks.json
 
+# Temp / test files
+out.json
+response.json
+response_test.json
+test_payload.json
+_create_lambda.py
+cloudfront_result.json
+
+# Logs
+*.log
+cf_run*.log
+cf_stderr.log
+cf_stdout.log
+
 # Python cache
 __pycache__/
 *.pyc
@@ -17,7 +31,7 @@ __pycache__/
 .venv/
 venv/
 
-# Large data files (kept in the parent folder, not in this project)
+# Large data files
 *.csv
 *.jsonl
 
