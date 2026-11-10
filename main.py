@@ -36,8 +36,48 @@ from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
+import threading
+from collections import deque
+from botocore.config import Config
+from botocore.exceptions import ClientError
 
 load_dotenv()
+
+# ── In-memory rate limiting (per session, single Lambda instance) ──────────
+# Lambda instances don't share memory, so this only limits within one warm instance.
+# That is acceptable for the current scale.
+
+_rate_lock = threading.Lock()
+_chat_windows: dict = {}      # session_id -> deque of timestamps (seconds)
+_image_windows: dict = {}     # session_id -> deque of timestamps (seconds)
+_CHAT_LIMIT   = 30            # requests per session per minute
+_IMAGE_LIMIT  = 5             # requests per session per 10 minutes
+_CHAT_WINDOW  = 60            # seconds
+_IMAGE_WINDOW = 600           # seconds
+_SESSION_EXPIRY = 600         # clean up sessions idle for 10 minutes
+
+
+def _check_rate_limit(windows: dict, session_id: str, limit: int, window_sec: int) -> bool:
+    """Return True if the request is allowed, False if the limit is exceeded."""
+    now = time.time()
+    with _rate_lock:
+        # Evict stale sessions to prevent unbounded memory growth.
+        stale = [sid for sid, dq in windows.items()
+                 if not dq or (now - dq[-1]) > _SESSION_EXPIRY]
+        for sid in stale:
+            del windows[sid]
+        # Get or create the deque for this session.
+        if session_id not in windows:
+            windows[session_id] = deque()
+        dq = windows[session_id]
+        # Drop timestamps outside the current window.
+        cutoff = now - window_sec
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        if len(dq) >= limit:
+            return False  # rate limit exceeded
+        dq.append(now)
+        return True
 
 AWS_REGION   = os.getenv("AWS_REGION", "us-east-1")
 TEXT_MODEL   = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
@@ -58,7 +98,34 @@ LEADS_TABLE_NAME = os.getenv("LEADS_TABLE", "tretter-leads")
 
 app = FastAPI(title="TRETTER Shopping Assistant")
 
-bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+_bedrock_config = Config(
+    connect_timeout=10,
+    read_timeout=30,
+    retries={"max_attempts": 1}  # we do our own retry loop below
+)
+bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION, config=_bedrock_config)
+
+
+def _bedrock_invoke_with_retry(model_id, body, content_type="application/json", accept="application/json"):
+    """Invoke a Bedrock model with bounded retries on throttling/unavailability."""
+    retryable = {"ThrottlingException", "ServiceUnavailableException"}
+    delays = [2, 4, 8]
+    last_exc = None
+    for attempt, delay in enumerate(delays + [None]):
+        try:
+            return bedrock.invoke_model(
+                modelId=model_id, body=body,
+                contentType=content_type, accept=accept
+            )
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code in retryable and delay is not None:
+                last_exc = e
+                print(f"[bedrock] {code} on attempt {attempt + 1}, retrying in {delay}s")
+                time.sleep(delay)
+                continue
+            raise  # non-retryable or out of retries
+    raise last_exc  # noqa: raise after exhausting retries
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
 try:
@@ -111,8 +178,7 @@ def _ensure_indexes():
 
 def embed_text(text):
     body = json.dumps({"inputText": text[:8000], "dimensions": DIM, "normalize": True})
-    r = bedrock.invoke_model(modelId=TEXT_MODEL, body=body,
-                             contentType="application/json", accept="application/json")
+    r = _bedrock_invoke_with_retry(TEXT_MODEL, body)
     return np.array(json.loads(r["body"].read())["embedding"], dtype=np.float32)
 
 
@@ -142,8 +208,7 @@ def normalize_image_to_jpeg_b64(raw_bytes):
 def embed_image_b64(img_b64):
     body = json.dumps({"inputImage": img_b64,
                        "embeddingConfig": {"outputEmbeddingLength": DIM}})
-    r = bedrock.invoke_model(modelId=IMAGE_MODEL, body=body,
-                             contentType="application/json", accept="application/json")
+    r = _bedrock_invoke_with_retry(IMAGE_MODEL, body)
     v = np.array(json.loads(r["body"].read())["embedding"], dtype=np.float32).reshape(1, -1)
     faiss.normalize_L2(v)   # match the index (which was L2-normalized)
     return v
@@ -151,16 +216,22 @@ def embed_image_b64(img_b64):
 
 # ── LLM (Nova) ─────────────────────────────────────────────────
 
-def call_llm(prompt, system=""):
+def call_llm(prompt, system="", lang="en"):
+    """Call the LLM with retry. Returns a friendly fallback message on total failure."""
     body_dict = {
         "messages": [{"role": "user", "content": [{"text": prompt}]}],
         "inferenceConfig": {"maxTokens": 600, "temperature": 0.5},
     }
     if system:
         body_dict["system"] = [{"text": system}]
-    r = bedrock.invoke_model(modelId=CHAT_MODEL, body=json.dumps(body_dict),
-                             contentType="application/json", accept="application/json")
-    return json.loads(r["body"].read())["output"]["message"]["content"][0]["text"].strip()
+    try:
+        r = _bedrock_invoke_with_retry(CHAT_MODEL, json.dumps(body_dict))
+        return json.loads(r["body"].read())["output"]["message"]["content"][0]["text"].strip()
+    except Exception as e:  # noqa: BLE001
+        print(f"[call_llm] failed after retries: {e}")
+        if lang == "de":
+            return "Entschuldigung, bitte erneut versuchen."
+        return "Sorry, please try again."
 
 
 # ── DynamoDB helpers ───────────────────────────────────────────
@@ -339,7 +410,11 @@ Conversation history:
 User message: {msg}
 
 Optimized search query:"""
-    return call_llm(prompt).strip().strip('"').strip("'")
+    try:
+        result = call_llm(prompt).strip().strip('"').strip("'")
+        return result if result else msg
+    except Exception:  # noqa: BLE001
+        return msg
 
 
 def detect_intent(msg):
@@ -398,7 +473,7 @@ Write a SHORT 2-3 sentence honest response following these STRICT rules:
 User mentioned a budget: {budget_mentioned}
 
 Write a short honest response. Only mention what the user asked for. Do not add details they did not request."""
-    return call_llm(prompt, system)
+    return call_llm(prompt, system, lang=lang)
 
 
 def conversational_reply(msg, history, lang="en"):
@@ -415,7 +490,7 @@ When users greet you or chat casually, respond warmly and briefly.
 Remind them they can find shoes by description, or upload a photo to find similar styles.
 Keep responses under 3 sentences."""
     hist = "\n".join(f"{t['role'].upper()}: {t['content']}" for t in history[-4:]) if history else "None"
-    return call_llm(f"Previous conversation:\n{hist}\n\nUser: {msg}\n\nRespond conversationally:", system)
+    return call_llm(f"Previous conversation:\n{hist}\n\nUser: {msg}\n\nRespond conversationally:", system, lang=lang)
 
 
 # ── API models + routes ────────────────────────────────────────
@@ -448,6 +523,10 @@ async def chat(req: ChatRequest):
     if not req.message.strip():
         raise HTTPException(400, "Message cannot be empty")
     session_id = req.session_id or str(uuid.uuid4())
+    if not _check_rate_limit(_chat_windows, session_id, _CHAT_LIMIT, _CHAT_WINDOW):
+        lang = req.lang or "en"
+        msg = "Zu viele Anfragen. Bitte warten Sie einen Moment." if lang == "de" else "Too many requests. Please wait a moment."
+        raise HTTPException(429, msg)
     history = load_history(session_id)
 
     if detect_intent(req.message) == "conversation":
@@ -479,6 +558,8 @@ async def search_by_image(
         raise HTTPException(400, "Name, email and phone are required for image search.")
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(400, "Please provide a valid email address.")
+    if not _check_rate_limit(_image_windows, session_id or "anon", _IMAGE_LIMIT, _IMAGE_WINDOW):
+        raise HTTPException(429, "Too many requests. Please wait a moment. / Zu viele Anfragen. Bitte warten Sie einen Moment.")
 
     raw = await image.read()
     if not raw:
